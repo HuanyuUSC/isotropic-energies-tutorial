@@ -1,8 +1,9 @@
-"""Regression + timing for the six demos (small versions), to compare the solver core before/after refactors.
-Each case prints energy / iterations / flips / time and the whole run is saved as JSON.
+"""Regression + timing for the six demos (small versions), checked against tests/baseline.json.
+Each case prints energy / iterations / flips / time; the whole run is saved as JSON and compared with the baseline.
+Every input is generated in code or downloaded on first use (the Stanford bunny), so this runs from a fresh clone.
 
-    python tests/regression.py out.json [case ...]
-cases: drag2d flatten_arap flatten_newton_gd sphere scene2d cantilever giraffe
+    python tests/regression.py [out.json] [case ...]
+cases: drag2d flatten_arap sphere scene2d cantilever drag3d
 """
 import json
 import os
@@ -13,8 +14,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
-sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "figures")]
-ASSETS = os.path.join(ROOT, "..", "assets")
+sys.path[:0] = [os.path.join(ROOT, "src")]
 out = {}
 
 
@@ -42,10 +42,17 @@ def drag2d():
     return dict(E=float(P.value(X)), iters=len(hist), flips=int((dets(X, F) <= 0).sum()))
 
 
-def _face():
-    import pickle
-    d = pickle.load(open(os.path.join(ROOT, "scratch", "flatten_face_arap.pkl"), "rb"))
-    return d["V3"], d["F"], d["X0"]
+def _patch():
+    """The largest disk-like chart of the bunny (as in demos/flatten.py), with its Tutte start."""
+    from distortion.atlas import grow_charts, is_disk, tutte
+    from distortion.meshes import genus0_mesh
+    V, F = genus0_mesh("bunny", 6000)
+    lab = grow_charts(V, F, 8)
+    charts = [np.flatnonzero(lab == k) for k in np.unique(lab)]
+    fs = max((c for c in charts if is_disk(np.unique(F[c], return_inverse=True)[1].reshape(-1, 3))), key=len)
+    vs, Fl = np.unique(F[fs], return_inverse=True)
+    Fl, V3 = Fl.reshape(-1, 3), V[vs]
+    return V3, Fl, tutte(V3, Fl)
 
 
 @case
@@ -55,7 +62,7 @@ def flatten_arap():
     from distortion.planar import dets
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
-    V3, F, X = _face()
+    V3, F, X = _patch()
     E = local_energy(V3, F, ARAP())
     A = E.A.sum()
     it = 0
@@ -79,8 +86,8 @@ def flatten_arap():
 @case
 def sphere():
     from distortion.sphere_param import parameterize, triple
-    d = np.load(os.path.join(ASSETS, "viewer", "cache100", "bearing.npz"))
-    V, F = d["V"], d["F"]
+    from distortion.meshes import genus0_mesh
+    V, F = genus0_mesh("bunny", 3000)
     S, hist = parameterize(V, F, verbose=False, iters=200)
     return dict(E=float(hist[-1][1]), iters=len(hist) - 1, flips=int((triple(S, F) <= 0).sum()))
 
@@ -123,21 +130,52 @@ def cantilever():
 
 
 @case
-def giraffe():
+def drag3d():
+    """The extruded cookie (demos/drag3d.py, coarser): feet and right hand pinned, the hand raised in 40 steps."""
     from distortion.contact import Scene
     from distortion.eigensystem import NeoHookean
-    D = np.load(os.path.join(ROOT, "scratch", "demo3d", "giraffe_tet.npz"))
-    V, T = D["V"].astype(float), D["T"].astype(np.int64)
-    V = (V - V.min(0)) * (2.0 / np.ptp(V[:, 1])); V[:, [0, 2]] -= V[:, [0, 2]].mean(0)
-    H = np.ptp(V[:, 1])
-    feet = V[:, 1] < 0.36 * H
-    S = Scene([(V, T, NeoHookean(mu=1 / 2.6, lam=0.3 / (1.3 * 0.4)), 1.0)], pinned=feet, h=None,
-              gravity=(0, 0, 0), ipc=False)
+    from distortion.solid import extruded_gingerbread
+    V, T, G = extruded_gingerbread(0.02)
+    hand, feet = G["right_hand"], G["feet"]
+    pinned = np.zeros(len(V), bool)
+    pinned[hand] = pinned[feet] = True
+
+    def path(t, X0):
+        X = X0.copy()
+        X[hand] = X0[hand] + t * np.array([0.3, 1.2, 0.6])
+        return X
+
+    S = Scene([(V, T, NeoHookean(mu=1.0, lam=4.0), 1.0)], pinned=pinned, pin_path=path, h=None, gravity=(0, 0, 0),
+              ipc=False)
     X = V.copy()
-    for k in range(1, 5):                     # sag under a ramped body force (quasistatic)
-        X = S.solve(X, 0.0, accel=(0.0, -0.05 * k, 0.03 * k))
+    for t in np.linspace(1 / 40, 1.0, 40):
+        X = S.solve(X, t)
     it = np.array([s[1] for s in S.stats])
-    return dict(neck=X[(V[:, 1] > 0.75 * H) & (V[:, 1] < 0.8 * H)].mean(0).round(5).tolist(), newton=int(it.sum()))
+    return dict(com=X.mean(0).round(5).tolist(), min_det=float(S.parts[0][0].dets(X).min()), newton=int(it.sum()))
 
 
-json.dump(out, open(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "latest.json"), "w"), indent=1)
+# ------------------------------------------------------------------------------------------- compare
+def compare(new, base, rtol=1e-4):
+    """Numbers within rtol of the baseline (integer counts within 10%); timings are reported, not checked."""
+    bad = []
+    for name, r in new.items():
+        b = base.get(name)
+        if b is None:
+            print(f"  {name:13s} no baseline"); continue
+        for k, v in r.items():
+            if k == "seconds" or k not in b:
+                continue
+            x, y = np.asarray(v, float), np.asarray(b[k], float)
+            tol = 0.1 * np.abs(y) + 1 if isinstance(v, int) else rtol * np.maximum(np.abs(y), 1e-3)
+            if not np.all(np.abs(x - y) <= tol):
+                bad.append(f"{name}.{k}: {v} vs {b[k]}")
+        print(f"  {name:13s} {r['seconds']:7.2f} s   (baseline {b.get('seconds', float('nan')):.2f} s)")
+    print("PASS" if not bad else "FAIL\n  " + "\n  ".join(bad))
+    return not bad
+
+
+dst = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "latest.json")
+json.dump(out, open(dst, "w"), indent=1)
+base = os.path.join(HERE, "baseline.json")
+if os.path.exists(base) and os.path.abspath(dst) != os.path.abspath(base):
+    sys.exit(0 if compare(out, json.load(open(base))) else 1)

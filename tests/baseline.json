@@ -1,46 +1,47 @@
 {
- "cantilever": {
-  "tip": 0.8425618055956966,
-  "box_low": 1.080479758322449,
-  "newton": 210,
-  "steps": 60,
-  "seconds": 5.587
- },
  "drag2d": {
   "E": 24.210461868605208,
   "iters": 7,
   "flips": 0,
-  "seconds": 0.392
+  "seconds": 0.342
  },
  "flatten_arap": {
-  "E_per_area": 0.013690772583289462,
-  "iters": 17,
+  "E_per_area": 0.0142190566797791,
+  "iters": 57,
   "flips": 0,
-  "seconds": 1.974
+  "seconds": 2.358
+ },
+ "sphere": {
+  "E": 7.8504614088515865,
+  "iters": 50,
+  "flips": 0,
+  "seconds": 3.623
  },
  "scene2d": {
-  "lowest": 0.019723731300180798,
+  "lowest": 0.01972373130018238,
   "com": [
    0.26085,
    0.02699
   ],
   "newton": 211,
   "steps": 90,
-  "seconds": 0.934
+  "seconds": 1.275
  },
- "sphere": {
-  "E": 8.976724952546657,
-  "iters": 37,
-  "flips": 0,
-  "seconds": 3.564
+ "cantilever": {
+  "tip": 0.8425618055956967,
+  "box_low": 1.0804797583224488,
+  "newton": 210,
+  "steps": 60,
+  "seconds": 3.115
  },
- "giraffe": {
-  "neck": [
-   -0.23359,
-   0.86993,
-   0.68642
+ "drag3d": {
+  "com": [
+   0.2441,
+   0.29584,
+   0.3311
   ],
-  "newton": 143,
-  "seconds": 7.868
+  "min_det": 0.8452576143842996,
+  "newton": 184,
+  "seconds": 6.116
  }
 }
