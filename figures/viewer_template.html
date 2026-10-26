@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth on a Bunny</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --panel: #ffffffee; --ink: #0b0b0b; --ink2: #52514e; --muted: #8a8984;
+    --line: #e2e1dc; --accent: #b5005b; --chip: #f1f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface: #1a1a19; --panel: #232322ee; --ink: #f0efec; --ink2: #c3c2b7; --muted: #8f8e88;
+      --line: #3a3a37; --accent: #e0558f; --chip: #2d2d2b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --surface: #1a1a19; --panel: #232322ee; --ink: #f0efec; --ink2: #c3c2b7; --muted: #8f8e88;
+    --line: #3a3a37; --accent: #e0558f; --chip: #2d2d2b;
+  }
+  html, body { margin: 0; height: 100%; background: var(--surface); color: var(--ink);
+    font: 14px/1.4 "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 268px; max-height: calc(100% - 24px); overflow: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    backdrop-filter: blur(6px); box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .group { margin: 10px 0 0; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button { flex: 1 1 auto; border: 1px solid var(--line); background: var(--chip); color: var(--ink2);
+    border-radius: 6px; padding: 5px 7px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .seg button:disabled { opacity: .35; cursor: default; }
+  select { width: 100%; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--chip);
+    color: var(--ink); font: inherit; font-size: 13px; }
+  #loading { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--muted); display: none; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; color: var(--ink2); }
+  .row input[type=range] { flex: 1; accent-color: var(--accent); }
+  .row input[type=checkbox] { accent-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  #readout { position: fixed; right: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; color: var(--ink2); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  #legend { margin-top: 6px; display: none; }
+  #legend .bar { height: 10px; border-radius: 3px; }
+  #legend .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  #toggle { position: fixed; top: 12px; right: 12px; display: none; }
+  @media (max-width: 640px) {
+    #panel { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 46%; }
+    #readout { bottom: auto; top: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="panel">
+  <h1>Textures through a sphere</h1>
+  <div class="sub">Mesh → sphere (precomputed) → texture: the Earth, or a checkered cube (central or conformal projection).</div>
+
+  <div class="group"><div class="label">Mesh</div><select id="meshsel"></select><div class="hint" id="meshinfo"></div></div>
+  <div class="group"><div class="label">Map</div><div class="seg" id="map"></div></div>
+  <div class="group" id="engroup" style="display:none">
+    <div class="label">Distortion energy (all ν = 0: identical at rest)</div>
+    <div class="seg" id="energy"></div>
+  </div>
+  <div class="group" id="nugroup" style="display:none">
+    <div class="label">Volume preservation (E = 1: a·Sym. Dirichlet + κ(J−1)²)</div>
+    <div class="row"><span>ν</span><input type="range" id="nu" min="0" max="5" value="0" step="1"><span id="nuv">0</span></div>
+    <div class="hint" id="nuhint">Poisson's ratio of the energy at rest; ν = 0 is plain Sym. Dirichlet.</div>
+  </div>
+  <div class="group"><div class="label">View</div><div class="seg" id="viewmode"></div></div>
+  <div class="group">
+    <div class="label">Texture</div><div class="seg" id="texture"></div>
+    <div class="row"><span>Strength</span><input type="range" id="texmix" min="0" max="100" value="75" step="5"><span id="texmixv">75%</span></div>
+    <div class="row" id="checksrow" style="display:none"><span>Checks</span><input type="range" id="checks" min="1" max="32" value="16" step="1"><span id="checksv">16</span></div>
+  </div>
+
+  <div class="group">
+    <div class="label">Anchor</div>
+    <div class="seg" id="anchor"></div>
+    <div class="hint">Click the shape (or the sphere) to put the anchor there.</div>
+    <div class="row"><span>Spin</span><input type="range" id="spin" min="-180" max="180" value="0" step="1"><span id="spinv">0°</span></div>
+  </div>
+
+  <div class="group">
+    <div class="label">Overlay</div>
+    <div class="row"><input type="checkbox" id="tissot"><label for="tissot">Tissot circles</label></div>
+    <div class="row"><input type="checkbox" id="grat"><label for="grat">Graticule (15°)</label></div>
+    <div class="row"><input type="checkbox" id="wire"><label for="wire">Wireframe</label></div>
+  </div>
+
+  <div class="group">
+    <div class="label">Color</div>
+    <div class="seg" id="color"></div>
+    <div id="legend"><div class="bar" id="lbar"></div><div class="ticks" id="lticks"></div></div>
+  </div>
+  <div class="hint" style="margin-top:10px">Drag to orbit · scroll to zoom · right-drag to pan.<br>
+  Keys: 1–5 map · V view · C texture · T Tissot · G graticule · W wireframe.</div>
+</div>
+<div id="readout">hover the surface</div>
+<div id="loading">loading…</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const DATA = __DATA__;
+const MAP_LABELS = { one_hole: "Naive", naive: "Tetrahedron", reference: "Dataset", conformal: "Conformal", symdir: "Optimized" };
+const MAP_ORDER = ["one_hole", "naive", "reference", "conformal", "symdir"];
+const NUS = ["0.00", "0.10", "0.20", "0.30", "0.40", "0.49"];
+const KAPPA = { "0.00": 0, "0.10": 0.057, "0.20": 0.139, "0.30": 0.288, "0.40": 0.714, "0.49": 8.22 };   // E = 1
+// the map actually shown: the nu slider swaps in the volume-preserving variants of Sym. Dirichlet
+const ENERGIES = [["symdir", "Sym. Dirichlet"], ["symarap", "Sym. ARAP"], ["hencky", "Hencky"],
+                  ["neohookean", "Neo-Hookean"], ["arap_b", "ARAP + barrier"], ["stvk_b", "StVK + barrier"]];
+// the map actually shown: "Optimized" means the chosen energy; for Sym. Dirichlet the nu slider
+// swaps in its volume-preserving variants
+const mapKey = () => {
+  if (state.map !== "symdir" || !CUR) return state.map;
+  if (state.energy !== "symdir") return CUR.maps["en_" + state.energy] ? "en_" + state.energy : "symdir";
+  return state.nu > 0 && CUR.maps["nu_" + NUS[state.nu]] ? "nu_" + NUS[state.nu] : "symdir";
+};
+const b64bytes = s => { const b = atob(s), u = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
+async function gunzip(bytes) {
+  const ds = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(ds).arrayBuffer();
+}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// Earth-frame directions of the anchors (z = north)
+const dir = (lonDeg, latDeg) => { const lo = lonDeg * Math.PI / 180, la = latDeg * Math.PI / 180;
+  return new THREE.Vector3(Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)); };
+const ANCHORS = { "North Pole": dir(0, 90), "South Pole": dir(0, -90), "Africa": dir(20, 5), "Greenland": dir(-42, 72),
+  "Cube corner": new THREE.Vector3(1, 1, 1).normalize() };
+
+const state = { mesh: DATA.default, map: "symdir", energy: "symdir", nu: 0, view: "shape", anchor: "Africa", spin: 0, texture: "earth", checks: 16,
+  tissot: false, grat: false, wire: false, color: "earth", hit: null };
+
+// ---------------------------------------------------------------- renderer
+const host = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+camera.position.set(0.6, 0.9, 6.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+const tex = new THREE.TextureLoader().load(DATA.texture);
+tex.colorSpace = THREE.SRGBColorSpace;
+tex.minFilter = THREE.LinearFilter;   // no mipmaps: avoids a seam at the date line
+tex.wrapS = THREE.RepeatWrapping;
+
+// conformal cubed sphere: gnomonic face coordinates -> conformal ones (half floats, row = y, column = x)
+const cubeTex = (() => {
+  const b = atob(DATA.cube.half), a = new Uint16Array(b.length / 2);
+  for (let i = 0; i < a.length; i++) a[i] = b.charCodeAt(2 * i) | (b.charCodeAt(2 * i + 1) << 8);
+  const t = new THREE.DataTexture(a, DATA.cube.n, DATA.cube.n, THREE.RedFormat, THREE.HalfFloatType);
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+})();
+
+const uniforms = {
+  uTex: { value: tex }, uR: { value: new THREE.Matrix3() }, uCube: { value: cubeTex }, uCubeN: { value: DATA.cube.n },
+  uTissot: { value: 0 }, uGrat: { value: 0 }, uColor: { value: 0 },
+  uAccent: { value: new THREE.Color(css("--accent")) },
+  uAnchor: { value: new THREE.Vector3(0, 0, 1) },
+  uMarker: { value: new URLSearchParams(location.search).has("nomarker") ? 0 : 1 },   // ?nomarker for figures
+  uTexMode: { value: 0 }, uChecks: { value: 16 }, uTexMix: { value: 0.75 },
+};
+const vert = `
+  attribute vec3 sph; attribute float fArea; attribute float fShape;
+  varying vec3 vS; varying vec3 vN; varying float vArea; varying float vShape;
+  void main() { vS = sph; vN = normalize(normalMatrix * normal); vArea = fArea; vShape = fShape;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const frag = `
+  precision highp float;
+  uniform sampler2D uTex; uniform mat3 uR; uniform float uTissot, uGrat, uColor;
+  uniform vec3 uAccent; uniform vec3 uAnchor; uniform float uMarker; uniform float uTexMode, uChecks;
+  uniform sampler2D uCube; uniform float uCubeN; uniform float uTexMix;
+  varying vec3 vS; varying vec3 vN; varying float vArea; varying float vShape;
+  const float PI = 3.14159265359;
+  vec3 diverging(float t) {           // blue (shrunk) - neutral - orange (enlarged)
+    vec3 lo = vec3(0.165, 0.471, 0.839), mid = vec3(0.94, 0.937, 0.925), hi = vec3(0.922, 0.408, 0.204);
+    t = clamp(t, -1.0, 1.0); return t < 0.0 ? mix(mid, lo, -t) : mix(mid, hi, t); }
+  // a cube with a tri-color checkerboard, seen through central projection: the direction's
+  // largest coordinate picks the face, the other two divided by it are that face's coordinates
+  vec3 cubeChecker(vec3 e) {
+    vec3 a = abs(e); vec2 uv; vec3 col;
+    if (a.x >= a.y && a.x >= a.z) { uv = e.yz / a.x; col = vec3(0.165, 0.471, 0.839); }
+    else if (a.y >= a.z)          { uv = e.zx / a.y; col = vec3(0.922, 0.408, 0.204); }
+    else                          { uv = e.xy / a.z; col = vec3(0.106, 0.686, 0.478); }
+    if (uTexMode > 1.5) {                     // conformal cube: look up u(x, y) and v = u(y, x)
+      vec2 tc = ((uv + 1.0) * 0.5 * (uCubeN - 1.0) + 0.5) / uCubeN;
+      uv = vec2(texture2D(uCube, tc).r, texture2D(uCube, tc.yx).r);
+    }
+    vec2 q = (uv + 1.0) * 0.5 * uChecks;
+    vec2 w = max(fwidth(q), vec2(1e-4));
+    vec2 i = 2.0 * (abs(fract((q - 0.5 * w) * 0.5) - 0.5) - abs(fract((q + 0.5 * w) * 0.5) - 0.5)) / w;
+    float k = 0.5 - 0.5 * i.x * i.y;          // box-filtered checker, 0 or 1 away from edges
+    return mix(vec3(0.957, 0.953, 0.937), col, k);
+  }
+  vec3 sequential(float t) {          // light -> dark blue
+    t = clamp(t, 0.0, 1.0); return mix(vec3(0.94, 0.937, 0.925), vec3(0.06, 0.24, 0.52), t); }
+  void main() {
+    vec3 s = normalize(vS);                 // piecewise-gnomonic map, evaluated per pixel
+    vec3 e = uR * s;                        // into Earth coordinates
+    float lon = atan(e.y, e.x), lat = asin(clamp(e.z, -1.0, 1.0));
+    vec3 c;
+    if (uColor < 0.5) c = uTexMode < 0.5 ? texture2D(uTex, vec2((lon + PI) / (2.0 * PI), (lat + PI / 2.0) / PI)).rgb
+                                         : cubeChecker(e);
+    else if (uColor < 1.5) c = diverging(vArea / 2.0);       // log2 area ratio, +-2 = x4
+    else c = sequential(vShape / 3.0);                       // log2 sigma1/sigma2, 3 = x8
+    if (uTissot > 0.5) {
+      float la = clamp(floor(degrees(lat) / 30.0 + 0.5), -2.0, 2.0) * 30.0;
+      float lo = floor((degrees(lon) + 165.0) / 30.0 + 0.5) * 30.0 - 165.0;
+      vec3 ctr = vec3(cos(radians(la)) * cos(radians(lo)), cos(radians(la)) * sin(radians(lo)), sin(radians(la)));
+      if (dot(e, ctr) > cos(radians(4.0))) c = mix(c, uAccent, 0.7);
+    }
+    if (uGrat > 0.5) {
+      float g = 15.0, d = 0.12;
+      vec2 ll = vec2(degrees(lon), degrees(lat));
+      vec2 m = abs(fract(ll / g + 0.5) - 0.5) * g;
+      vec2 w = fwidth(ll) * 1.2;
+      float line = max(1.0 - smoothstep(0.0, w.x + d * 0.0, m.x) , 1.0 - smoothstep(0.0, w.y, m.y));
+      c = mix(c, vec3(1.0), 0.75 * line);
+    }
+    // texture strength: fade the texture toward plaster so the shape reads through it
+    if (uColor < 0.5) c = mix(vec3(0.72), c, uTexMix);
+    // anchor marker
+    if (uMarker > 0.5 && dot(s, uAnchor) > cos(radians(1.2))) c = mix(c, uAccent, 0.9);
+    vec3 N = normalize(vN);
+    vec3 L = normalize(vec3(0.45, 0.7, 1.0)), L2 = normalize(vec3(-1.0, 0.1, 0.6));
+    float diff = max(dot(N, L), 0.0), fill = max(dot(N, L2), 0.0);
+    float spec = pow(max(dot(N, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), 24.0);
+    gl_FragColor = vec4(c * (0.16 + 0.82 * diff + 0.25 * fill) + 0.12 * spec, 1.0);
+    #include <colorspace_fragment>
+  }`;
+const material = new THREE.ShaderMaterial({ uniforms, vertexShader: vert, fragmentShader: frag });
+const wireMat = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.18 });
+
+// ---------------------------------------------------------------- geometry
+// Blob layout: u32 header length | header JSON | pad to 4 | float32 V | uint32 F | float32 maps...
+const cache = {};
+let CUR = null;
+async function loadMesh(name) {
+  if (cache[name]) return cache[name];
+  const M = DATA.meshes[name];
+  const raw = M.inline ? b64bytes(M.inline) : new Uint8Array(await (await fetch(M.url)).arrayBuffer());
+  const buf = await gunzip(raw);
+  const hlen = new Uint32Array(buf, 0, 1)[0];
+  const H = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, hlen)));
+  const at = (off, T, len) => new T(buf, off, len);
+  const V = at(H.V, Float32Array, 3 * H.n), F = at(H.F, Uint32Array, 3 * H.m);
+  const box = new THREE.Box3().setFromArray(V), c = box.getCenter(new THREE.Vector3());
+  const sz = box.getSize(new THREE.Vector3()), k = 2.2 / Math.max(sz.x, sz.y, sz.z);
+  const Vd = V.map((x, i) => (x - c.getComponent(i % 3)) * k);
+  const maps = {};
+  for (const [key, off] of Object.entries(H.maps)) maps[key] = { S: at(off, Float32Array, 3 * H.n) };
+  return (cache[name] = { name, n: H.n, m: H.m, V: Vd, F, maps, info: H.info || {} });
+}
+
+// Per-face distortion of mesh triangle -> chord triangle: log2 area ratio and log2 sigma1/sigma2.
+function distortion(D, mp) {
+  if (mp.area) return;
+  const { F, V, m } = D, S = mp.S;
+  mp.area = new Float32Array(m); mp.shape = new Float32Array(m);
+  const frame = (P, a, b, c) => {
+    const e1 = [P[3*b]-P[3*a], P[3*b+1]-P[3*a+1], P[3*b+2]-P[3*a+2]], e2 = [P[3*c]-P[3*a], P[3*c+1]-P[3*a+1], P[3*c+2]-P[3*a+2]];
+    const l = Math.hypot(...e1) || 1e-30, x = e1.map(v => v / l);
+    const n = [e1[1]*e2[2]-e1[2]*e2[1], e1[2]*e2[0]-e1[0]*e2[2], e1[0]*e2[1]-e1[1]*e2[0]], ln = Math.hypot(...n) || 1e-30;
+    const y = [(n[1]*x[2]-n[2]*x[1])/ln, (n[2]*x[0]-n[0]*x[2])/ln, (n[0]*x[1]-n[1]*x[0])/ln];
+    const dot = (u, v) => u[0]*v[0]+u[1]*v[1]+u[2]*v[2];
+    return [dot(e1, x), dot(e2, x), dot(e1, y), dot(e2, y)];     // [[a b],[c d]], columns e1, e2
+  };
+  for (let t = 0; t < m; t++) {
+    const a = F[3*t], b = F[3*t+1], c = F[3*t+2];
+    const [m00, m01, m10, m11] = frame(V, a, b, c), [s00, s01, s10, s11] = frame(S, a, b, c);
+    const dm = m00*m11 - m01*m10 || 1e-30;
+    const i00 = m11/dm, i01 = -m01/dm, i10 = -m10/dm, i11 = m00/dm;      // J = Ds Dm^-1
+    const j00 = s00*i00 + s01*i10, j01 = s00*i01 + s01*i11, j10 = s10*i00 + s11*i10, j11 = s10*i01 + s11*i11;
+    const det = Math.abs(j00*j11 - j01*j10) + 1e-30, p = j00*j00 + j01*j01 + j10*j10 + j11*j11;
+    const q = Math.sqrt(Math.max(p*p - 4*det*det, 0)), s1 = Math.sqrt((p + q) / 2), s2 = det / s1;
+    mp.area[t] = Math.log2(det); mp.shape[t] = Math.log2(s1 / s2);
+  }
+}
+
+// Non-indexed geometry (per-face distortion attributes); smooth normals for the shape, radial for the sphere.
+function buildGeometry(D, mapKey, onSphere) {
+  const mp = D.maps[mapKey], F = D.F, m = D.m;
+  distortion(D, mp);
+  const pos = new Float32Array(9 * m), sph = new Float32Array(9 * m), nrm = new Float32Array(9 * m);
+  const fa = new Float32Array(3 * m), fs = new Float32Array(3 * m);
+  const src = onSphere ? mp.S : D.V;
+  const vn = new Float32Array(3 * D.n);
+  if (!onSphere) {
+    for (let t = 0; t < m; t++) {
+      const a = F[3*t], b = F[3*t+1], c = F[3*t+2];
+      const ax = D.V[3*a], ay = D.V[3*a+1], az = D.V[3*a+2];
+      const ux = D.V[3*b]-ax, uy = D.V[3*b+1]-ay, uz = D.V[3*b+2]-az;
+      const wx = D.V[3*c]-ax, wy = D.V[3*c+1]-ay, wz = D.V[3*c+2]-az;
+      const nx = uy*wz-uz*wy, ny = uz*wx-ux*wz, nz = ux*wy-uy*wx;
+      for (const v of [a, b, c]) { vn[3*v] += nx; vn[3*v+1] += ny; vn[3*v+2] += nz; }
+    }
+  }
+  for (let t = 0; t < m; t++) for (let k = 0; k < 3; k++) {
+    const v = F[3*t+k], o = 9*t + 3*k;
+    for (let j = 0; j < 3; j++) {
+      pos[o+j] = src[3*v+j] * (onSphere ? 1.15 : 1);
+      sph[o+j] = mp.S[3*v+j];
+      nrm[o+j] = onSphere ? mp.S[3*v+j] : vn[3*v+j];
+    }
+    fa[3*t+k] = mp.area[t]; fs[3*t+k] = mp.shape[t];
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("sph", new THREE.BufferAttribute(sph, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+  g.setAttribute("fArea", new THREE.BufferAttribute(fa, 1));
+  g.setAttribute("fShape", new THREE.BufferAttribute(fs, 1));
+  if (!onSphere) g.normalizeNormals();
+  return g;
+}
+
+const group = new THREE.Group(); scene.add(group);
+let shapeMesh = null, sphereMesh = null;
+let building = 0;
+async function rebuild() {
+  const ticket = ++building;
+  const load = document.getElementById("loading");
+  if (!cache[state.mesh]) load.style.display = "block";
+  const D = await loadMesh(state.mesh);
+  load.style.display = "none";
+  if (ticket !== building) return;          // a newer request superseded this one
+  CUR = D;
+  group.clear();
+  if (!D.maps[state.map]) state.map = D.maps.symdir ? "symdir" : Object.keys(D.maps)[0];
+  shapeMesh = sphereMesh = null;
+  if (state.view !== "sphere") {
+    shapeMesh = new THREE.Mesh(buildGeometry(D, mapKey(), false), material);
+    group.add(shapeMesh);
+    if (state.wire) shapeMesh.add(new THREE.Mesh(shapeMesh.geometry, wireMat));
+  }
+  if (state.view !== "shape") {
+    sphereMesh = new THREE.Mesh(buildGeometry(D, mapKey(), true), material);
+    group.add(sphereMesh);
+    if (state.wire) sphereMesh.add(new THREE.Mesh(sphereMesh.geometry, wireMat));
+  }
+  group.scale.setScalar(state.view === "both" ? 0.78 : 1);
+  if (state.view === "both") { shapeMesh.position.x = -1.5; sphereMesh.position.x = 1.55; }
+  if (!state.hit) defaultAnchor(D);
+  updateRotation();
+  syncUI();
+}
+
+// ---------------------------------------------------------------- anchoring
+// The anchor is a point on the MESH (face + barycentrics), so it stays put when the map changes.
+function defaultAnchor(D) {
+  // the vertex nearest the front-center of the shape
+  let best = 0, bd = Infinity;
+  for (let v = 0; v < D.n; v++) {
+    const d = (D.V[3*v] - 0.05) ** 2 + (D.V[3*v+1] + 0.1) ** 2 - 4 * D.V[3*v+2];
+    if (d < bd) { bd = d; best = v; }
+  }
+  for (let t = 0; t < D.m; t++) for (let k = 0; k < 3; k++) if (D.F[3*t+k] === best) {
+    const bary = [0, 0, 0]; bary[k] = 1; state.hit = { face: t, bary }; return; }
+}
+function anchorSphere() {
+  const D = CUR, S = D.maps[mapKey()].S, t = state.hit.face, b = state.hit.bary;
+  const p = new THREE.Vector3();
+  for (let k = 0; k < 3; k++) { const v = D.F[3*t+k]; p.x += b[k]*S[3*v]; p.y += b[k]*S[3*v+1]; p.z += b[k]*S[3*v+2]; }
+  return p.normalize();
+}
+function updateRotation() {
+  const p = anchorSphere(), t = ANCHORS[state.anchor];
+  const q = new THREE.Quaternion().setFromUnitVectors(p, t);
+  q.premultiply(new THREE.Quaternion().setFromAxisAngle(t, state.spin * Math.PI / 180));
+  uniforms.uR.value.setFromMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+  uniforms.uAnchor.value.copy(p);
+}
+
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hits = ray.intersectObjects([shapeMesh, sphereMesh].filter(Boolean), false);
+  if (!hits.length) return null;
+  const h = hits[0], t = h.faceIndex, geo = h.object.geometry.attributes.position;
+  const A = new THREE.Vector3().fromBufferAttribute(geo, 3*t), B = new THREE.Vector3().fromBufferAttribute(geo, 3*t+1),
+        C = new THREE.Vector3().fromBufferAttribute(geo, 3*t+2);
+  const local = h.object.worldToLocal(h.point.clone());
+  const bary = new THREE.Vector3(); THREE.Triangle.getBarycoord(local, A, B, C, bary);
+  return { face: t, bary: [bary.x, bary.y, bary.z] };
+}
+let down = null;
+renderer.domElement.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("pointerup", e => {
+  if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;   // a drag, not a click
+  const h = pick(e); if (!h) return;
+  state.hit = h; updateRotation();
+});
+renderer.domElement.addEventListener("pointermove", e => {
+  const h = pick(e), out = document.getElementById("readout");
+  if (!h) { out.textContent = "hover the surface"; return; }
+  const D = CUR, mp = D.maps[mapKey()], S = mp.S, p = new THREE.Vector3();
+  for (let k = 0; k < 3; k++) { const v = D.F[3*h.face+k]; p.x += h.bary[k]*S[3*v]; p.y += h.bary[k]*S[3*v+1]; p.z += h.bary[k]*S[3*v+2]; }
+  const e3 = p.normalize().applyMatrix3(uniforms.uR.value);
+  const lat = Math.asin(Math.max(-1, Math.min(1, e3.z))) * 180 / Math.PI, lon = Math.atan2(e3.y, e3.x) * 180 / Math.PI;
+  const area = 2 ** mp.area[h.face], shape = 2 ** mp.shape[h.face];
+  out.textContent = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}  ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}` +
+    `   ·   area ×${area < 1 ? area.toPrecision(2) : area.toFixed(2)}   ·   σ₁/σ₂ ${shape.toFixed(2)}`;
+});
+
+// ---------------------------------------------------------------- UI
+function seg(id, items, key, after) {
+  const el = document.getElementById(id); el.innerHTML = "";
+  for (const [val, label] of items) {
+    const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
+    b.onclick = () => { state[key] = val; after(); }; el.appendChild(b);
+  }
+}
+function syncUI() {
+  document.getElementById("checksrow").style.display = state.texture === "earth" ? "none" : "flex";
+  for (const [id, key] of [["map", "map"], ["energy", "energy"], ["viewmode", "view"], ["anchor", "anchor"], ["color", "color"], ["texture", "texture"]])
+    for (const b of document.getElementById(id).children) b.classList.toggle("on", b.dataset.v === state[key]);
+  const D = CUR;
+  document.getElementById("meshsel").value = state.mesh;
+  document.getElementById("meshinfo").textContent = D ? `${D.n.toLocaleString()} vertices · ${D.m.toLocaleString()} triangles` +
+    (D.info.symdir_iters ? ` · Sym. Dirichlet: ${D.info.symdir_iters} iterations, ${D.info.symdir_time}s` : "") : "";
+  for (const b of document.getElementById("map").children) b.disabled = !(D && D.maps[b.dataset.v]);
+  const hasNu = D && D.maps["nu_0.10"];
+  document.getElementById("nugroup").style.display = hasNu ? "block" : "none";
+  document.getElementById("nu").disabled = state.map !== "symdir" || state.energy !== "symdir";
+  const hasEn = D && Object.keys(D.maps).some(k => k.startsWith("en_"));
+  document.getElementById("engroup").style.display = hasEn ? "block" : "none";
+  for (const b of document.getElementById("energy").children)
+    b.disabled = state.map !== "symdir" || !(D && (b.dataset.v === "symdir" || D.maps["en_" + b.dataset.v]));
+  document.getElementById("nuv").textContent = NUS[state.nu].replace(/0$/, "").replace(/\.$/, "") +
+    (state.nu ? `  (κ = ${KAPPA[NUS[state.nu]]})` : "");
+  const lg = document.getElementById("legend");
+  lg.style.display = state.color === "earth" ? "none" : "block";
+  if (state.color === "area") {
+    document.getElementById("lbar").style.background = "linear-gradient(90deg,#2a78d6,#f0efec,#eb6834)";
+    document.getElementById("lticks").innerHTML = "<span>area ×1/4</span><span>×1</span><span>×4</span>";
+  } else if (state.color === "shape") {
+    document.getElementById("lbar").style.background = "linear-gradient(90deg,#f0efec,#0f3d85)";
+    document.getElementById("lticks").innerHTML = "<span>σ₁/σ₂ = 1</span><span>2.8</span><span>≥ 8</span>";
+  }
+}
+{
+  const sel = document.getElementById("meshsel"), groups = {};
+  for (const [name, M] of Object.entries(DATA.meshes)) {
+    const g = M.group || "Meshes";
+    if (!groups[g]) { groups[g] = document.createElement("optgroup"); groups[g].label = g; sel.appendChild(groups[g]); }
+    const o = document.createElement("option"); o.value = name; o.textContent = M.label || name; groups[g].appendChild(o);
+  }
+  sel.onchange = () => { state.mesh = sel.value; state.hit = null; rebuild(); };
+}
+seg("map", MAP_ORDER.map(k => [k, MAP_LABELS[k]]), "map", rebuild);
+seg("energy", ENERGIES, "energy", rebuild);
+seg("viewmode", [["shape", "Shape"], ["sphere", "Sphere"], ["both", "Both"]], "view", rebuild);
+seg("anchor", Object.keys(ANCHORS).map(k => [k, k]), "anchor", () => { updateRotation(); syncUI(); });
+seg("texture", [["earth", "Earth"], ["cube", "Cube"], ["cubec", "Conformal cube"]], "texture", () => {
+  uniforms.uTexMode.value = { earth: 0, cube: 1, cubec: 2 }[state.texture]; syncUI(); });
+const texmix = document.getElementById("texmix");
+texmix.oninput = () => { uniforms.uTexMix.value = +texmix.value / 100;
+  document.getElementById("texmixv").textContent = texmix.value + "%"; };
+const checks = document.getElementById("checks");
+checks.oninput = () => { state.checks = +checks.value; uniforms.uChecks.value = state.checks;
+  document.getElementById("checksv").textContent = checks.value; };
+seg("color", [["earth", "Texture"], ["area", "Area"], ["shape", "Shape"]], "color", () => {
+  uniforms.uColor.value = { earth: 0, area: 1, shape: 2 }[state.color]; syncUI(); });
+const nuSlider = document.getElementById("nu");
+nuSlider.oninput = () => { state.nu = +nuSlider.value; rebuild(); };
+const spin = document.getElementById("spin");
+spin.oninput = () => { state.spin = +spin.value; document.getElementById("spinv").textContent = spin.value + "°"; updateRotation(); };
+for (const id of ["tissot", "grat", "wire"]) document.getElementById(id).onchange = e => {
+  state[id] = e.target.checked;
+  if (id === "wire") rebuild(); else uniforms[id === "tissot" ? "uTissot" : "uGrat"].value = +state[id];
+};
+addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
+  if ("12345".includes(e.key) && CUR && CUR.maps[MAP_ORDER[+e.key - 1]]) { state.map = MAP_ORDER[+e.key - 1]; rebuild(); }
+  else if (e.key === "v" || e.key === "V") { state.view = { shape: "sphere", sphere: "both", both: "shape" }[state.view]; rebuild(); }
+  else if (e.key === "c" || e.key === "C") document.querySelector(`#texture button[data-v="${{ earth: "cube", cube: "cubec", cubec: "earth" }[state.texture]}"]`).click();
+  else if (e.key === "t" || e.key === "T") document.getElementById("tissot").click();
+  else if (e.key === "g" || e.key === "G") document.getElementById("grat").click();
+  else if (e.key === "w" || e.key === "W") document.getElementById("wire").click();
+});
+
+function resize() {
+  const w = host.clientWidth, h = host.clientHeight;
+  renderer.setSize(w, h); camera.aspect = w / h;
+  const panel = document.getElementById("panel").getBoundingClientRect();
+  const side = w > 640 ? (panel.right + 12) / 2 : 0;          // half the panel's footprint
+  camera.setViewOffset(w, h, -side, 0, w, h);
+  camera.updateProjectionMatrix();
+  renderer.setClearColor(new THREE.Color(css("--surface")));
+}
+addEventListener("resize", resize);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  resize(); uniforms.uAccent.value = new THREE.Color(css("--accent")); });
+resize(); rebuild();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>

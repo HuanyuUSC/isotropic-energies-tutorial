@@ -1,0 +1,46 @@
+{
+ "cantilever": {
+  "tip": 0.8425618055956966,
+  "box_low": 1.080479758322449,
+  "newton": 210,
+  "steps": 60,
+  "seconds": 5.587
+ },
+ "drag2d": {
+  "E": 24.210461868605208,
+  "iters": 7,
+  "flips": 0,
+  "seconds": 0.392
+ },
+ "flatten_arap": {
+  "E_per_area": 0.013690772583289462,
+  "iters": 17,
+  "flips": 0,
+  "seconds": 1.974
+ },
+ "scene2d": {
+  "lowest": 0.019723731300180798,
+  "com": [
+   0.26085,
+   0.02699
+  ],
+  "newton": 211,
+  "steps": 90,
+  "seconds": 0.934
+ },
+ "sphere": {
+  "E": 8.976724952546657,
+  "iters": 37,
+  "flips": 0,
+  "seconds": 3.564
+ },
+ "giraffe": {
+  "neck": [
+   -0.23359,
+   0.86993,
+   0.68642
+  ],
+  "newton": 143,
+  "seconds": 7.868
+ }
+}
