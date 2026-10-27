@@ -245,6 +245,7 @@ class LinearSolver:
 
     def __init__(self, seed=None, max_ratio=None, backend="auto"):
         self.seed, self.max_ratio, self.keys, self.n, self.ps = seed, max_ratio, None, -1, None
+        self._last = None                   # (keys, pos) of the last matrix: an unchanged pattern skips the lookup
         self.analyses = self.solves = 0
         self.pp, self.backend = None, backend
         if backend in ("auto", "pardiso"):
@@ -255,16 +256,18 @@ class LinearSolver:
                 pass
 
     def _analyze(self, keys, n):
-        if self.ps is not None:
+        # one PARDISO object for the whole run: its constructor searches the disk for MKL (~0.9 s on Windows)
+        if self.ps is None:
+            self.ps = self.pp.PyPardisoSolver(mtype=2)              # real symmetric positive definite
+        else:
             try:
-                self.ps.free_memory(everything=True)
+                self.ps.free_memory(everything=True)                # drop the old analysis, keep the object
             except Exception:
-                pass
-        self.keys, self.n = keys, n
+                self.ps = self.pp.PyPardisoSolver(mtype=2)
+        self.keys, self.n, self._last = keys, n, None
         rows, cols = keys // n, keys % n
         self.indices = cols.astype(np.int32)
         self.indptr = np.searchsorted(rows, np.arange(n + 1)).astype(np.int32)
-        self.ps = self.pp.PyPardisoSolver(mtype=2)                  # real symmetric positive definite
         A = sp.csr_matrix((np.where(rows == cols, 1.0, 0.0), self.indices, self.indptr), shape=(n, n))
         self.ps.set_phase(11)
         self.ps._call_pardiso(A, np.zeros(n))
@@ -279,26 +282,31 @@ class LinearSolver:
             return superlu_spd(A, b)
         U = sp.triu(A, format="coo")                                  # PARDISO's SPD mode reads the upper triangle
         keys = U.row.astype(np.int64) * n + U.col
-        if self.keys is None or n != self.n:
-            new = np.unique(keys)
+        if (self._last is not None and n == self.n and len(keys) == len(self._last[0])
+                and np.array_equal(keys, self._last[0])):
+            pos = self._last[1]                                       # same pattern as last time (most iterations)
         else:
-            pos = np.searchsorted(self.keys, keys)
-            inside = (pos < len(self.keys)) & (self.keys[np.minimum(pos, len(self.keys) - 1)] == keys)
-            new = None if inside.all() else np.unique(np.concatenate([self.keys, keys]))
-        if new is not None and self.max_ratio is not None and len(new) > self.max_ratio * len(np.unique(keys)):
-            new = np.unique(keys)
-        if new is not None:
-            if self.seed is not None:
-                new = np.union1d(new, self.seed(n))
-            self._analyze(new, n)
-        pos = np.searchsorted(self.keys, keys)
+            if self.keys is None or n != self.n:
+                new = np.unique(keys)
+            else:
+                pos = np.searchsorted(self.keys, keys)
+                inside = (pos < len(self.keys)) & (self.keys[np.minimum(pos, len(self.keys) - 1)] == keys)
+                new = None if inside.all() else np.unique(np.concatenate([self.keys, keys]))
+            if new is not None and self.max_ratio is not None and len(new) > self.max_ratio * len(np.unique(keys)):
+                new = np.unique(keys)
+            if new is not None:
+                if self.seed is not None:
+                    new = np.union1d(new, self.seed(n))
+                self._analyze(new, n)
+                pos = np.searchsorted(self.keys, keys)
+            self._last = (keys, pos)
         data = np.bincount(pos, weights=U.data, minlength=len(self.keys))
         M = sp.csr_matrix((data, self.indices, self.indptr), shape=(n, n))
         try:
             self.ps.set_phase(23)                                    # numeric factorization + solve only
             x = self.ps._call_pardiso(M, b)
         except Exception:
-            self.keys = None
+            self.keys = self._last = None
             return superlu_spd(A, b)
         self.solves += 1
         return x
