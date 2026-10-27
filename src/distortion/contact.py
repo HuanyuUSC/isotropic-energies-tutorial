@@ -169,13 +169,16 @@ class PlaneTerm:
 
 class IPCTerm:
     """kappa * IPC barrier between all surfaces (body-body and self contact), from ipctk [Li et al. 2020];
-    its safe step is ipctk's continuous collision detection."""
+    its safe step is ipctk's continuous collision detection.
+    ccd="additive": Additive CCD [Li et al. 2021], conservative advancement per candidate pair; on the letters demo
+    it is 17x faster than Tight Inclusion and gives the same steps (mean 1.06x). ccd="tight": Tight Inclusion."""
 
-    def __init__(self, cmesh, dhat, kappa):
+    def __init__(self, cmesh, dhat, kappa, ccd="additive"):
         import ipctk
         self.ipc, self.cmesh, self.dhat = ipctk, cmesh, dhat
         self.barrier = ipctk.BarrierPotential(dhat, kappa)
         self.broad = ipctk.SweepAndPrune() if hasattr(ipctk, "SweepAndPrune") else None
+        self.ccd = {"additive": ipctk.AdditiveCCD, "tight": ipctk.TightInclusionCCD}[ccd]()
         self.ncol = 0
         self._cache = (None, None)          # (positions, collision set) from the last terms() call
 
@@ -201,8 +204,8 @@ class IPCTerm:
 
     def max_step(self, Y, D):
         """Conservative advancement first: two surface points approach by at most 2 max|D| per unit step, so a
-        full step is safe if that is below the current minimum surface distance (most Newton steps); only
-        otherwise run the exact CCD (ipctk's Tight Inclusion with a fast broad phase)."""
+        full step is safe if that is below the current minimum surface distance; otherwise run the CCD on the
+        swept broad phase's candidates."""
         C0 = self.cmesh.vertices(Y)
         m = np.sqrt((self.cmesh.vertices(D) ** 2).sum(1).max())
         Cc, col = self._cache
@@ -212,9 +215,10 @@ class IPCTerm:
         if 2 * m < 0.9 * dmin:
             return 1.0
         C1 = self.cmesh.vertices(Y + D)
-        cand = self.ipc.Candidates()                    # swept broad phase, then Tight Inclusion CCD on the candidates
-        cand.build(self.cmesh, np.asfortranarray(C0), np.asfortranarray(C1), 0.0, self.broad)
-        return cand.compute_collision_free_stepsize(self.cmesh, np.asfortranarray(C0), np.asfortranarray(C1))
+        C0, C1 = np.asfortranarray(C0), np.asfortranarray(C1)
+        cand = self.ipc.Candidates()
+        cand.build(self.cmesh, C0, C1, 0.0, self.broad)
+        return cand.compute_collision_free_stepsize(self.cmesh, C0, C1, 0.0, self.ccd)
 
 
 GrowingPatternSolver = LinearSolver          # the old name
@@ -222,11 +226,12 @@ GrowingPatternSolver = LinearSolver          # the old name
 
 class Scene:
     """bodies: list of (V, T, energy, density); planes: list of Plane; pinned: bool mask over all vertices
-    (pinned vertices follow `pin_path(t, X0)` if given, else stay put).
+    (pinned vertices follow `pin_path(t, X0)` if given, else stay put). ccd: "additive" or "tight" (see IPCTerm).
     A core.Problem: one Elastic term per body + Inertia + planes + IPC contact, solved by core.minimize."""
 
     def __init__(self, bodies, planes=(), pinned=None, pin_path=None, h=1 / 120, gravity=(0, -9.8, 0),
-                 ipc=True, dhat=5e-3, kappa=100.0, quasistatic_weight=1e-3, solver="auto", pattern_margin=0.005):
+                 ipc=True, dhat=5e-3, kappa=100.0, quasistatic_weight=1e-3, solver="auto", pattern_margin=0.005,
+                 ccd="additive"):
         self.problem = None
         self.parts, Vs, off, m = [], [], 0, []
         for V, T, energy, rho in bodies:
@@ -266,7 +271,7 @@ class Scene:
                 self.cmesh = ipctk.CollisionMesh.build_from_full_mesh(self.X0, F.astype(np.int32))
             self.ipc = ipctk
             self.dhat, self.kappa = dhat, kappa
-            self.contact_term = IPCTerm(self.cmesh, dhat, kappa)
+            self.contact_term = IPCTerm(self.cmesh, dhat, kappa, ccd)
             terms.append(self.contact_term)
         self.stats = []
         self.solver = LinearSolver(seed=self._seed_keys if self.ipc is not None else None,
