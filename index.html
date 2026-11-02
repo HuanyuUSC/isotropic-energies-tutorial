@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isotropic Distortion Energies</title>
+<meta name="description" content="Isotropic Distortion Energies: one machine for parameterization, deformation, and dynamics. Talk by Huanyu Chen (USC) at UCLA, October 2026. Slides and code.">
+<meta property="og:title" content="Isotropic Distortion Energies">
+<meta property="og:description" content="One machine for parameterization, deformation, and dynamics. Slides and code.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root { --accent: #b5005b; --ink: #1d1d1f; --muted: #6b6b70; --line: #e6e6ea; --bg: #ffffff; --soft: #f7f7f9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 "Source Serif 4", Georgia, serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 48px 20px 64px; }
+  h1, h2, .sans { font-family: "Source Sans 3", system-ui, sans-serif; }
+  h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; margin: 0 0 6px; text-align: center; }
+  .subtitle { text-align: center; font: 600 clamp(18px, 2.6vw, 22px)/1.3 "Source Sans 3", sans-serif; color: var(--accent); margin: 0 0 18px; }
+  .byline { text-align: center; font-family: "Source Sans 3", sans-serif; color: var(--muted); margin: 0; }
+  .byline a { color: var(--ink); font-weight: 600; text-decoration: none; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 22px 0 30px; }
+  .btn { font: 600 15px "Source Sans 3", sans-serif; text-decoration: none; color: #fff; background: var(--ink);
+         padding: 9px 18px; border-radius: 999px; }
+  .btn.primary { background: var(--accent); }
+  .btn:hover { opacity: .85; }
+  .teaser { width: 100%; border: 1px solid var(--line); border-radius: 10px; display: block; }
+  h2 { font-size: 24px; margin: 44px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  .machine { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0 6px; }
+  .step { background: var(--soft); border-radius: 10px; padding: 14px 16px; font-size: 15.5px; }
+  .step b { display: block; font-family: "Source Sans 3", sans-serif; color: var(--accent); font-size: 15px; margin-bottom: 2px; }
+  .grid { display: grid; grid-template-columns: 110px repeat(3, 1fr); gap: 10px; align-items: center; margin-top: 14px; }
+  .grid .hdr { font: 700 15px "Source Sans 3", sans-serif; text-align: center; color: var(--accent); }
+  .grid .row { font: 700 15px "Source Sans 3", sans-serif; color: var(--muted); }
+  .cell video { width: 100%; aspect-ratio: 16/10; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; display: block; }
+  .cell span { display: block; font: 13.5px/1.35 "Source Sans 3", sans-serif; color: var(--muted); margin-top: 4px; text-align: center; }
+  pre { background: var(--soft); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.5; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  footer { margin-top: 48px; color: var(--muted); font: 14px "Source Sans 3", sans-serif; text-align: center; }
+  @media (max-width: 680px) {
+    .machine { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: 1fr 1fr; }
+    .grid .hdr.corner, .grid .hdr { display: none; }
+    .grid .row { grid-column: 1 / -1; margin-top: 8px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Isotropic Distortion Energies</h1>
+  <p class="subtitle">One machine for parameterization, deformation, and dynamics</p>
+  <p class="byline"><a href="https://sites.google.com/usc.edu/huanyu-chen">Huanyu Chen</a> · University of Southern California</p>
+  <p class="byline">Guest lecture, MATH 285J, University of California, Los Angeles · October 26, 2026</p>
+
+  <div class="buttons">
+    <a class="btn primary" href="slides/index.html">Slides (in browser)</a>
+    <a class="btn" href="https://github.com/HuanyuUSC/isotropic-energies-tutorial/releases/latest/download/isotropic-distortion-energies-slides.pdf">Slides (PDF)</a>
+    <a class="btn" href="https://github.com/HuanyuUSC/isotropic-energies-tutorial">Code</a>
+  </div>
+
+  <img class="teaser" src="teaser.jpg" alt="Six problems solved by the same code: flattening a face and mapping a skull to a sphere (parameterization), posing a gingerbread man and a giraffe (deformation), soft letters in a box and six soft toys on two springboards (dynamics), in 2D and 3D.">
+
+  <h2>Abstract</h2>
+  <p>Why does Greenland look as large as Africa on a world map, when Africa is fourteen times bigger? Gauss showed that no flat map of the Earth is free of distortion, and the same problem appears whenever computer graphics flattens a surface into a texture map, poses a character, or simulates a soft body. This talk builds a single tool for all of these problems, starting from zero.</p>
+  <p>Every deformation is locally a linear map whose singular values are exactly the ellipses cartographers use to visualize distortion. Energies that depend only on these stretches ignore rotations and measure only what a map gets distorted. Newton's method can run uphill or flip triangles inside out on these energies; a closed-form eigensystem of the Hessian makes it fast and robust in any dimension. The same few lines of code then solve parameterization, shape deformation, and elastodynamics in both 2D and 3D. Once a distortion energy is written as a function of singular values, all these applications become one problem.</p>
+
+  <h2>The machine</h2>
+  <div class="machine">
+    <div class="step"><b>1 · Stretches</b>Per element, F = D<sub>s</sub>D<sub>m</sub><sup>−1</sup> and its signed SVD give the principal stretches σ.</div>
+    <div class="step"><b>2 · Energy</b>An isotropic energy ψ(σ) (ARAP, Symmetric Dirichlet, Neo-Hookean, conformal, …) and its closed-form Hessian eigensystem.</div>
+    <div class="step"><b>3 · Solver</b>Projected Newton with a safe step (no inversion, no crossing) and Armijo line search.</div>
+  </div>
+
+  <h2>Six problems, one solver</h2>
+  <div class="grid">
+    <div class="hdr corner"></div>
+    <div class="hdr">Parameterization</div><div class="hdr">Deformation</div><div class="hdr">Dynamics</div>
+    <div class="row">2D · triangles</div>
+    <div class="cell"><video src="assets/fig/vid/vid_flatten_arap.mp4" poster="assets/fig/vid/vid_flatten_arap_poster.jpg" autoplay muted loop playsinline preload="metadata"></video><span>Flattening a face (ARAP)</span></div>
+    <div class="cell"><video src="assets/fig/vid/vid_drag_arap.mp4" poster="assets/fig/vid/vid_drag_arap_poster.png" autoplay muted loop playsinline preload="metadata"></video><span>Dragging the gingerbread man</span></div>
+    <div class="cell"><video src="assets/fig/vid/cand2d_letters.mp4" poster="assets/fig/vid/cand2d_letters.jpg" autoplay muted loop playsinline preload="metadata"></video><span>Soft letters fall into a box</span></div>
+    <div class="row">3D · tetrahedra</div>
+    <div class="cell"><video src="assets/fig/vid/vid_skull.mp4" poster="assets/fig/vid/vid_skull_poster.jpg" autoplay muted loop playsinline preload="metadata"></video><span>A skull onto the sphere, flip-free</span></div>
+    <div class="cell"><video src="assets/fig/vid/vid_giraffe.mp4" poster="assets/fig/vid/vid_giraffe.jpg" autoplay muted loop playsinline preload="metadata"></video><span>Posing a giraffe</span></div>
+    <div class="cell"><video src="assets/fig/vid/vid_pile_toys.mp4" poster="assets/fig/vid/vid_pile_toys.jpg" autoplay muted loop playsinline preload="metadata"></video><span>Six soft toys, two springboards</span></div>
+  </div>
+
+  <h2>Code</h2>
+  <p>The <a href="https://github.com/HuanyuUSC/isotropic-energies-tutorial">repository</a> is the machine in plain NumPy/SciPy, small and readable: fast prototyping, not production. Seconds for the 2D demos, minutes for the 3D dynamics.</p>
+<pre><code>git clone https://github.com/HuanyuUSC/isotropic-energies-tutorial
+cd isotropic-energies-tutorial
+pip install -e .
+pip install ipctk libigl pyvista trimesh pillow   # contact, Tutte, rendering, mesh I/O
+python demos/drag2d.py                            # results go to demos/out/</code></pre>
+
+  <h2>Citation</h2>
+<pre><code>@misc{chen2026isotropic,
+  author       = {Huanyu Chen},
+  title        = {Isotropic Distortion Energies: One Machine for Parameterization, Deformation, and Dynamics},
+  howpublished = {Guest lecture, MATH 285J, University of California, Los Angeles},
+  month        = oct,
+  year         = {2026},
+  url          = {https://huanyuusc.github.io/isotropic-energies-tutorial/}
+}</code></pre>
+
+  <footer>Meshes: Stanford 3D Scanning Repository. Earth imagery: NASA Blue Marble, Natural Earth. Code is MIT-licensed.</footer>
+</main>
+</body>
+</html>
