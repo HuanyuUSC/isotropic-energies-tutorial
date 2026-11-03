@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Private</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 16px system-ui, sans-serif; }
+  #gate { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; padding: 0 16px; }
+  input { font: inherit; padding: 10px 12px; width: min(280px, 100%); border-radius: 6px; border: 1px solid #444; background: #1c1c1c; color: #eee; }
+  button { font: inherit; padding: 8px 18px; border-radius: 6px; border: 0; background: #2d6a86; color: #fff; }
+  label { font-size: 14px; color: #999; }
+  #msg { min-height: 1.4em; font-size: 14px; color: #aaa; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+</style>
+</head>
+<body>
+<form id="gate">
+  <input id="pw" type="password" autocomplete="current-password" placeholder="Password" autofocus>
+  <label><input id="remember" type="checkbox" style="width:auto"> remember on this device</label>
+  <button>Open</button>
+  <div id="msg"></div>
+</form>
+<script>
+const $ = (id) => document.getElementById(id);
+const say = (t) => { const m = $("msg"); if (m) m.textContent = t; };
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+let enc = null;   // downloaded ciphertext, kept so a wrong password needs no re-download
+
+async function download(meta) {
+  const buf = new Uint8Array(meta.bytes);
+  let got = 0;
+  for (let i = 0; i < meta.parts; i++) {
+    const r = await fetch(`part${i}.bin`);
+    if (!r.ok) throw new Error("download failed");
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf.set(value, got); got += value.length;
+      say(`Loading ${Math.round(100 * got / meta.bytes)}%`);
+    }
+  }
+  return buf;
+}
+
+async function open(pw) {
+  const meta = await (await fetch("meta.json")).json();
+  if (!enc) enc = await download(meta);
+  say("Decrypting…");
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64(meta.salt), iterations: meta.iter, hash: "SHA-256" },
+                                            base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  let plain;
+  try {
+    plain = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(meta.iv) }, key, enc));
+  } catch (e) { throw new Error("Wrong password"); }
+  const n = new DataView(plain.buffer).getUint32(0);
+  const head = JSON.parse(new TextDecoder().decode(plain.subarray(4, 4 + n)));
+  const data = 4 + n;
+  let html = head.html;
+  head.files.forEach((f, i) => {
+    const url = URL.createObjectURL(new Blob([plain.subarray(data + f.off, data + f.off + f.len)], { type: f.type }));
+    html = html.split(`__ASSET_${i}__`).join(url);
+  });
+  const frame = document.createElement("iframe");
+  frame.allow = "fullscreen; autoplay";
+  frame.src = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  document.body.appendChild(frame);
+  $("gate").remove();
+  frame.addEventListener("load", () => frame.focus());
+}
+
+$("gate").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const pw = $("pw").value, remember = $("remember").checked;
+  try {
+    await open(pw);
+    if (remember) { try { localStorage.setItem("pw", pw); } catch (_) {} }
+  } catch (err) {
+    say(err.message);
+    try { localStorage.removeItem("pw"); } catch (_) {}
+  }
+});
+
+try {
+  const saved = localStorage.getItem("pw");
+  if (saved) { $("pw").value = saved; $("remember").checked = true; }
+} catch (_) {}
+</script>
+</body>
+</html>
